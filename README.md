@@ -1,4 +1,6 @@
-# Papin Ads
+# TelegramAdsBot
+
+Papin Ads — веб-кабинет проекта TelegramAdsBot.
 
 Веб-прототип управления TON-кабинетом Telegram Ads. Один администратор, отдельный хост, интерфейс на русском языке. Telegram-бот управления запланирован на следующий этап.
 
@@ -46,20 +48,26 @@ python -c 'from getpass import getpass; from app.config import hash_password; pr
 
 Открывайте интерфейс по `PUBLIC_URL`, а не как локальный HTML-файл. Сервер включает CSS и JavaScript в основной документ, чтобы оформление и обработчики входа не зависели от отдельных запросов к ресурсам. Встроенный JavaScript разрешён CSP только по SHA-256 его содержимого; `unsafe-inline` для скриптов не используется. Главная страница отдаётся с `Cache-Control: no-store`.
 
-Рабочая папка сервера: `/opt/papin-ads`; закрытый bare-репозиторий: `/srv/git/papin-ads.git`. Клонирование доступно владельцу SSH-ключа:
+Основной репозиторий: `git@github.com:Evgev/TelegramAdsBot.git` (`origin`). Рабочая папка сервера: `/opt/papin-ads`; серверная копия Git: `/srv/git/papin-ads.git` (`deploy`). Клонирование:
 
 ```sh
-git clone root@ads.papin-free.site:/srv/git/papin-ads.git
+git clone git@github.com:Evgev/TelegramAdsBot.git
+cd TelegramAdsBot
+git remote add deploy root@ads.papin-free.site:/srv/git/papin-ads.git
 ```
 
-Обновление после push:
+Публикация кода в GitHub и обновление сервера:
 
 ```sh
+git push origin main
+git push deploy main
 ssh root@ads.papin-free.site
 cd /opt/papin-ads
 git pull --ff-only
 docker compose up -d --build
 ```
+
+Если изменился `deploy/Caddyfile`, выполните на сервере `docker compose up -d --force-recreate caddy`, чтобы обновить привязанный файл конфигурации. Push в GitHub сам по себе не запускает развёртывание.
 
 ## Проверка и локальная разработка
 
