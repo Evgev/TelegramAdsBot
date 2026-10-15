@@ -25,6 +25,9 @@ def decide(ad, policy, snapshots, now, last_sync):
         return Decision('hold', 'Статистика устарела')
     if ad.get('status') != 'active':
         return Decision('hold', 'Ожидаем активного объявления')
+    cpm = float(ad['cpm'])
+    if policy.get('last_cpm') is not None and abs(cpm - policy['last_cpm']) > 0.009:
+        return Decision('external', 'Ставка изменена вне стратегии; автоподбор приостановлен')
     start = policy['started_at']
     end = policy['deadline']
     current_views = max(0, ad.get('views', 0) - policy['baseline_views'])
@@ -38,9 +41,6 @@ def decide(ad, policy, snapshots, now, last_sync):
     if ad.get('remaining_budget', 0) <= 0:
         return Decision('hold', 'Закончился бюджет объявления')
     last_change = policy.get('last_change', start)
-    cpm = float(ad['cpm'])
-    if policy.get('last_cpm') is not None and abs(cpm - policy['last_cpm']) > 0.009:
-        return Decision('external', 'Ставка изменена вне стратегии; автоподбор приостановлен')
     if now - last_change < policy['cooldown_minutes'] * 60:
         return Decision('hold', 'Ожидаем применения ставки и накопления данных')
     # Exclude the latency after the last bid change; require enough data at one bid.

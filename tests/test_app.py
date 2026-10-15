@@ -111,6 +111,10 @@ class ControllerTests(unittest.TestCase):
         self.ad['cpm'] = 4
         self.assertEqual(self.decision().action, 'external')
 
+    def test_external_change_takes_priority_over_automatic_pause(self):
+        self.ad.update(cpm=4, views=1000)
+        self.assertEqual(self.decision().action, 'external')
+
     def test_each_goal_condition_pauses(self):
         self.ad['views'] = 1000
         self.assertEqual(self.decision().action, 'pause')
