@@ -311,6 +311,29 @@ class AppTests(unittest.TestCase):
                     self.assertAlmostEqual(ads[ad_id]['ctr'], expected)
                     self.assertEqual(float(rows[ad_id]['CTR %']), ads[ad_id]['ctr'])
 
+    def test_ad_cpc_and_csv_handle_zero_clicks_missing_cost_and_small_values(self):
+        cases = [(20, 1.2345, 3, 1.2345/3), (21, 0, 5, 0), (22, 2, 0, None),
+                 (23, None, 5, None), (24, 2, None, None), (25, -1, 2, None),
+                 (26, 0.000001, 10, 0.000001/10)]
+        for ad_id, spent, clicks, _ in cases:
+            ad = dict(AD, ad_id=ad_id, clicks=clicks)
+            if spent is None:
+                ad.pop('spent_budget')
+            else:
+                ad['spent_budget'] = spent
+            self.db.save_ad(ad)
+        ads = {ad['ad_id']: ad for ad in self.client.get('/api/ads').json()['ads']}
+        exported = self.client.get('/api/export.csv').text.lstrip('\ufeff')
+        rows = {int(row['ID']): row for row in csv.DictReader(io.StringIO(exported))}
+        for ad_id, _, _, expected in cases:
+            with self.subTest(ad_id=ad_id):
+                if expected is None:
+                    self.assertIsNone(ads[ad_id]['cpc'])
+                    self.assertEqual(rows[ad_id]['CPC TON'], '')
+                else:
+                    self.assertEqual(ads[ad_id]['cpc'], expected)
+                    self.assertEqual(float(rows[ad_id]['CPC TON']), expected)
+
 
 if __name__ == '__main__':
     unittest.main()
