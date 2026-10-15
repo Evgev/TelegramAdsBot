@@ -1,7 +1,9 @@
 import asyncio
 import base64
 import copy
+import csv
 import hashlib
+import io
 import json
 import re
 import tempfile
@@ -286,6 +288,28 @@ class AppTests(unittest.TestCase):
     def test_csv_formula_injection(self):
         self.db.save_ad(dict(AD, title='=HYPERLINK("evil")'))
         self.assertIn("'=HYPERLINK", self.client.get('/api/export.csv').text)
+
+    def test_ad_ctr_and_csv_preserve_zero_missing_and_full_precision(self):
+        cases = [(10, 3, 1, 100/3), (11, 100, 0, 0), (12, 0, 0, None),
+                 (13, 100, None, None), (14, None, 2, None)]
+        for ad_id, views, clicks, expected in cases:
+            ad = dict(AD, ad_id=ad_id, clicks=clicks)
+            if views is None:
+                ad.pop('views')
+            else:
+                ad['views'] = views
+            self.db.save_ad(ad)
+        ads = {ad['ad_id']: ad for ad in self.client.get('/api/ads').json()['ads']}
+        exported = self.client.get('/api/export.csv').text.lstrip('\ufeff')
+        rows = {int(row['ID']): row for row in csv.DictReader(io.StringIO(exported))}
+        for ad_id, _, _, expected in cases:
+            with self.subTest(ad_id=ad_id):
+                if expected is None:
+                    self.assertIsNone(ads[ad_id]['ctr'])
+                    self.assertEqual(rows[ad_id]['CTR %'], '')
+                else:
+                    self.assertAlmostEqual(ads[ad_id]['ctr'], expected)
+                    self.assertEqual(float(rows[ad_id]['CTR %']), ads[ad_id]['ctr'])
 
 
 if __name__ == '__main__':

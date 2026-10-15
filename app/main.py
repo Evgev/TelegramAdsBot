@@ -106,6 +106,13 @@ class Automation(StrictModel):
     paused: bool
 
 
+def click_through_rate(ad):
+    views, clicks = ad.get('views'), ad.get('clicks')
+    if views is None or views <= 0 or clicks is None or clicks < 0:
+        return None
+    return clicks / views * 100
+
+
 def create_app(settings=None, api=None):
     settings = settings or Settings.from_env()
     settings.validate()
@@ -239,7 +246,7 @@ def create_app(settings=None, api=None):
     @app.get('/api/ads')
     async def list_ads():
         policies = db.policies()
-        return {'ads': [dict(ad, policy=policies.get(ad['ad_id'])) for ad in db.ads()]}
+        return {'ads': [dict(ad, ctr=click_through_rate(ad), policy=policies.get(ad['ad_id'])) for ad in db.ads()]}
 
     @app.post('/api/ads/actions')
     async def ad_actions(body: AdActions):
@@ -384,13 +391,14 @@ def create_app(settings=None, api=None):
     async def export():
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['ID', 'Название', 'Статус', 'Размещение', 'CPM TON', 'Расход TON', 'Остаток TON', 'Показы', 'Клики', 'Действия', 'Ссылка'])
+        writer.writerow(['ID', 'Название', 'Статус', 'Размещение', 'CPM TON', 'Расход TON', 'Остаток TON', 'Показы', 'Клики', 'CTR %', 'Действия', 'Ссылка'])
         def cell(value):
             if isinstance(value, str) and value.startswith(('=', '+', '-', '@', '\t', '\r')):
                 return "'" + value
             return value
         for ad in db.ads():
-            writer.writerow([cell(ad.get(k)) for k in ['ad_id', 'title', 'status', 'placement', 'cpm', 'spent_budget', 'remaining_budget', 'views', 'clicks', 'actions', 'promote_url']])
+            row = dict(ad, ctr=click_through_rate(ad))
+            writer.writerow([cell(row.get(k)) for k in ['ad_id', 'title', 'status', 'placement', 'cpm', 'spent_budget', 'remaining_budget', 'views', 'clicks', 'ctr', 'actions', 'promote_url']])
         return Response('\ufeff' + output.getvalue(), media_type='text/csv; charset=utf-8', headers={'Content-Disposition': 'attachment; filename=papin-ads.csv'})
 
     app.mount('/static', StaticFiles(directory=static), name='static')
