@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111b2e"><title>Papin Ads — управление рекламой</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<section id="login-screen" class="login-screen">
+  <div class="login-story"><div class="brand"><span class="brand-mark">P<span>↗</span></span><div>Papin<span class="brand-light"> Ads</span></div></div>
+    <div class="login-intro"><span class="eyebrow">ВАША РЕКЛАМА. ПОД КОНТРОЛЕМ.</span><h1>Меньше рутины.<br>Больше результата.</h1><p>Шаблоны, массовый запуск и понятная аналитика Telegram Ads в одном кабинете.</p><div class="orbit"><span class="orbit-core">↗</span><span class="orbit-label one">CPM</span><span class="orbit-label two">Показы</span><span class="orbit-label three">Результат</span></div></div>
+    <div class="login-bottom">PAPIN VPN <span>●</span> ADS WORKSPACE</div>
+  </div>
+  <div class="login-panel"><form id="login-form"><span class="eyebrow muted">ЗАКРЫТЫЙ КАБИНЕТ</span><h2>С возвращением</h2><p class="muted">Войдите, чтобы управлять рекламой.</p><label>Логин<input name="username" id="login-username" autocomplete="username" value="admin" required></label><label>Пароль<input name="password" id="login-password" type="password" autocomplete="current-password" required></label><p id="login-error" class="error-text" role="alert"></p><button class="button primary full" type="submit">Войти в кабинет <span>→</span></button></form></div>
+</section>
+<div id="workspace" class="workspace hidden">
+  <aside class="sidebar"><a class="brand" href="#overview"><span class="brand-mark">P<span>↗</span></span><div>Papin<span class="brand-light"> Ads</span></div></a>
+    <div class="workspace-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+    <nav aria-label="Основная навигация">
+      <button data-nav="overview" class="nav-item active"><span data-icon="grid"></span>Обзор</button>
+      <button data-nav="ads" class="nav-item"><span data-icon="megaphone"></span>Объявления<span id="nav-ad-count" class="nav-count">—</span></button>
+      <button data-nav="templates" class="nav-item"><span data-icon="layers"></span>Шаблоны</button>
+      <button data-nav="batches" class="nav-item"><span data-icon="queue"></span>Массовый запуск</button>
+      <button data-nav="events" class="nav-item"><span data-icon="clock"></span>Журнал действий</button>
+    </nav>
+    <div class="sidebar-note"><span class="tiny-dot"></span><strong>Один бот — одно объявление</strong><p>Сравнивайте результаты и управляйте ставкой для каждой площадки.</p></div>
+    <div class="sidebar-bottom"><div class="avatar">PV</div><div><strong id="account-sidebar">Papin VPN</strong><span>Telegram Ads · TON</span></div><button class="icon-button" data-action="logout" title="Выйти"><span data-icon="logout"></span></button></div>
+  </aside>
+  <main>
+    <header class="topbar"><div class="breadcrumb">Рабочее пространство <span>/</span> <strong id="breadcrumb">Обзор</strong></div><div class="topbar-right"><span id="connection" class="connection"><i></i>Подключение</span><span class="prototype">ПРОТОТИП</span></div></header>
+    <div class="page">
+      <div class="page-title"><div><span class="eyebrow muted" id="page-kicker">TELEGRAM ADS</span><h1 id="page-heading">Обзор рекламы</h1><p id="page-description">Результаты, бюджеты и темп показов в одном месте.</p></div><div class="page-actions"><button class="button secondary" data-action="sync" id="sync-button"><span data-icon="refresh"></span><span>Обновить</span></button><button class="button primary" data-action="new-batch"><span data-icon="plus"></span>Создать пачку</button></div></div>
+      <div id="sync-error" class="notice error hidden"></div>
+      <section id="view-overview" class="view">
+        <div class="metrics" id="metrics"></div>
+        <div class="overview-grid"><section class="card chart-card"><div class="card-heading"><div><h2>Динамика рекламы</h2><p>Расходы и показы по дням · UTC</p></div><select id="chart-days" aria-label="Период графика"><option value="7">Последние 7 дней</option><option value="14" selected>Последние 14 дней</option></select></div><div class="chart-legend"><span><i class="legend-coral"></i>Расход, TON</span><span><i class="legend-blue"></i>Показы</span></div><div id="chart" class="chart"></div><div id="chart-note" class="chart-note"></div></section><section class="card pacing-card" id="pacing-card"></section></div>
+        <section class="card ads-card"><div class="card-heading"><div><h2>Объявления</h2><p id="last-sync">Ожидаем первую синхронизацию</p></div><button class="text-button" data-nav="ads">Все объявления →</button></div><div id="overview-table"></div></section>
+      </section>
+      <section id="view-ads" class="view hidden"><section class="card ads-card"><div class="table-toolbar"><div class="search"><span data-icon="search"></span><input id="ad-search" placeholder="Поиск по названию или боту" aria-label="Поиск объявлений"></div><div class="filter-row"><select id="ad-status" aria-label="Статус"><option value="">Все статусы</option><option value="active">Активно</option><option value="in_review">На модерации</option><option value="stopped">Остановлено</option><option value="on_hold">На паузе</option><option value="declined">Отклонено</option></select><select id="ad-placement" aria-label="Формат"><option value="">Все форматы</option><option value="bot_banner">Боты</option><option value="search_result">Поиск</option><option value="channel_post">Каналы</option></select><a class="button secondary compact" href="/api/export.csv"><span data-icon="download"></span>CSV</a></div></div><div id="bulk-toolbar" class="bulk-toolbar hidden"></div><div id="ads-table"></div></section></section>
+      <section id="view-templates" class="view hidden"><div class="section-actions"><p>Сохраните удачный текст и используйте его для новых размещений.</p><button class="button secondary" data-action="new-template"><span data-icon="plus"></span>Новый шаблон</button></div><div id="templates-grid" class="templates-grid"></div></section>
+      <section id="view-batches" class="view hidden"><div id="batches-list"></div></section>
+      <section id="view-events" class="view hidden"><section class="card"><div class="card-heading"><div><h2>История действий</h2><p>Создание объявлений, изменения CPM и работа стратегий.</p></div><span class="subtle-label">Последние 200 событий</span></div><div id="events-list"></div></section></section>
+      <footer class="page-footer"><span>Papin Ads <span class="footer-dot">·</span> Ваш кабинет управления</span><span>Денежные показатели в TON</span></footer>
+    </div>
+  </main>
+</div>
+<dialog id="modal"><div class="modal-header"><div><span class="eyebrow muted" id="modal-kicker">PAPIN ADS</span><h2 id="modal-title"></h2></div><button class="icon-button" data-action="close-modal" aria-label="Закрыть">×</button></div><form id="modal-form"><div id="modal-body" class="modal-body"></div><div id="modal-footer" class="modal-footer"></div></form></dialog>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+</body></html>
