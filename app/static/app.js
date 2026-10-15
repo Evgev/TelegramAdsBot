@@ -21,8 +21,8 @@ async function api(path,options={}){
   return result;
 }
 const post=(path,body={})=>api(path,{method:'POST',body:JSON.stringify(body)});
-function showLogin(){state.loaded=false;state.csrf='';$('#workspace').classList.add('hidden');$('#login-screen').classList.remove('hidden');}
-function showWorkspace(){state.loaded=true;$('#login-screen').classList.add('hidden');$('#workspace').classList.remove('hidden');}
+function showLogin(){state.loaded=false;state.csrf='';$('#workspace').hidden=true;$('#login-screen').hidden=false;$('#workspace').classList.add('hidden');$('#login-screen').classList.remove('hidden');}
+function showWorkspace(){state.loaded=true;$('#login-screen').hidden=true;$('#workspace').hidden=false;$('#login-screen').classList.add('hidden');$('#workspace').classList.remove('hidden');}
 async function load(){
   if(!state.csrf)return;
   const [overview,ads,templates,batches,events,report]=await Promise.all([api('/overview'),api('/ads'),api('/templates'),api('/batches'),api('/events'),api('/reports?days='+$('#chart-days').value)]);

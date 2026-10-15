@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import csv
+import hashlib
 import hmac
 import io
 import json
@@ -13,7 +15,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -111,6 +113,16 @@ def create_app(settings=None, api=None):
     ads_api = api or AdsAPI(settings.ads_token)
     engine = Engine(settings, db, ads_api)
     attempts = {}
+    static = Path(__file__).parent / 'static'
+    # Deliver the first-party UI in the document: filters or stale asset caches
+    # must not leave the login page unstyled or without its event handlers.
+    script = (static / 'app.js').read_text().replace('</script', r'<\/script')
+    style = (static / 'style.css').read_text().replace('</style', r'<\/style')
+    html = (static / 'index.html').read_text()
+    html = html.replace('<link rel="stylesheet" href="/static/style.css">', '<style>' + style + '</style>')
+    html = html.replace('<script src="/static/app.js" defer></script>', '')
+    html = html.replace('</body>', '<script>' + script + '</script></body>')
+    script_hash = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -155,7 +167,7 @@ def create_app(settings=None, api=None):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['Referrer-Policy'] = 'same-origin'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        response.headers['Content-Security-Policy'] = f"default-src 'self'; script-src 'self' 'sha256-{script_hash}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
         if path.startswith('/api/') or path == '/':
             response.headers['Cache-Control'] = 'no-store'
         return response
@@ -381,11 +393,10 @@ def create_app(settings=None, api=None):
             writer.writerow([cell(ad.get(k)) for k in ['ad_id', 'title', 'status', 'placement', 'cpm', 'spent_budget', 'remaining_budget', 'views', 'clicks', 'actions', 'promote_url']])
         return Response('\ufeff' + output.getvalue(), media_type='text/csv; charset=utf-8', headers={'Content-Disposition': 'attachment; filename=papin-ads.csv'})
 
-    static = Path(__file__).parent / 'static'
     app.mount('/static', StaticFiles(directory=static), name='static')
 
     @app.get('/')
     async def index():
-        return FileResponse(static / 'index.html')
+        return HTMLResponse(html)
 
     return app

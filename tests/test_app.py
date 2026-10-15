@@ -1,6 +1,9 @@
 import asyncio
+import base64
 import copy
+import hashlib
 import json
+import re
 import tempfile
 import time
 import unittest
@@ -169,6 +172,22 @@ class AppTests(unittest.TestCase):
     def test_unicode_bad_username_is_unauthorized(self):
         response = self.client.post('/api/login', json={'username': 'админ', 'password': 'bad'}, headers=self.origin)
         self.assertEqual(response.status_code, 401)
+
+    def test_document_contains_ui_without_external_style_or_script_requests(self):
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('rel="stylesheet"', response.text)
+        self.assertNotIn('<script src=', response.text)
+        self.assertNotIn('@import', response.text)
+        self.assertIn('.login-screen{', response.text)
+        self.assertIn('id="workspace" class="workspace hidden" hidden', response.text)
+        script = re.search(r'<script>(.*?)</script>', response.text, re.S).group(1)
+        digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
+        script_policy = response.headers['Content-Security-Policy'].split('script-src ', 1)[1].split(';', 1)[0]
+        self.assertIn("'sha256-"+digest+"'", script_policy)
+        self.assertNotIn("'unsafe-inline'", script_policy)
+        self.assertIn('no-store', response.headers['Cache-Control'])
+        self.assertGreater(response.text.index('<script>'), response.text.index('id="modal-form"'))
 
     def test_preview_has_no_side_effects(self):
         preview = self.preview()
