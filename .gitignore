@@ -9,3 +9,5 @@ data/
 access.txt
 *.sqlite*
 *.tar.gz
+*.session
+*.session-*

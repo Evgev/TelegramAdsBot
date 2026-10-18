@@ -5,6 +5,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 SCHEMA = '''
+CREATE TABLE IF NOT EXISTS discovery_cache (key TEXT PRIMARY KEY, body TEXT NOT NULL, updated INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS research (id TEXT PRIMARY KEY, kind TEXT NOT NULL, target_key TEXT NOT NULL, body TEXT NOT NULL, updated INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_research_target ON research(kind,target_key);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ads (id INTEGER PRIMARY KEY, raw TEXT NOT NULL, updated INTEGER NOT NULL, present INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS templates (id TEXT PRIMARY KEY, name TEXT NOT NULL, body TEXT NOT NULL, created INTEGER NOT NULL);

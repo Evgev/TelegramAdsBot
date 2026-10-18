@@ -55,6 +55,8 @@ def decide(ad, policy, snapshots, now, last_sync):
     hours = (last['ts'] - first['ts']) / 3600
     rate = (last['views'] - first['views']) / hours
     target_rate = (policy['target_views'] - current_views) / max((end - now) / 3600, 0.01)
+    if ad.get('placement') == 'search_result' and rate == 0:
+        return Decision('hold', 'Нет показов в поиске: недостаточно данных о спросе; проверьте фразу и ставку вручную', rate=rate, target_rate=target_rate)
     tolerance = policy['tolerance_percent'] / 100
     step = policy['step_percent'] / 100
     if rate < target_rate * (1 - tolerance):

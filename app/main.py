@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .ads_api import AdsAPI, AdsError
 from .config import Settings, verify_password
 from .db import DB
+from .discovery import Discovery, csv_rows
 from .engine import Engine, sign, unsign
 
 
@@ -36,16 +37,19 @@ class Login(StrictModel):
 
 class Template(StrictModel):
     name: str = Field(min_length=1, max_length=80)
-    text: str = Field(min_length=1, max_length=160)
+    text: str = Field(default='', max_length=160)
     promote_url: str = Field(min_length=1, max_length=256)
     impression_frequency: int = Field(default=1, ge=1, le=4)
     source_ad_id: int | None = None
+    placements: list[Literal['bots', 'channels', 'search']] = Field(default_factory=lambda: ['bots', 'channels', 'search'], min_length=1, max_length=3)
 
     @model_validator(mode='after')
     def check_url(self):
         parts = urlsplit(self.promote_url)
         if parts.scheme != 'https' or parts.netloc != 't.me' or not parts.path.strip('/'):
-            raise ValueError('Укажите HTTPS-ссылку на Telegram-бота')
+            raise ValueError('Укажите HTTPS-ссылку на Telegram-бота или канал')
+        if any(k != 'search' for k in self.placements) and not self.text.strip():
+            raise ValueError('Для шаблона ботов или каналов нужен текст')
         return self
 
 
@@ -73,7 +77,10 @@ class Policy(StrictModel):
 class BatchSpec(StrictModel):
     name: str = Field(min_length=1, max_length=60)
     template_id: str = Field(min_length=1, max_length=100)
-    bots: str = Field(min_length=1, max_length=10000)
+    kind: Literal['bots', 'channels', 'search'] = 'bots'
+    project: str = Field(default='', max_length=80)
+    targets: str = Field(default='', max_length=10000)
+    bots: str = Field(default='', max_length=10000)
     budget: float = Field(ge=0.01, le=100000, multiple_of=0.01)
     cpm: float = Field(ge=0.01, le=10000, multiple_of=0.01)
     tracking: Literal['keep', 'unique'] = 'keep'
@@ -81,9 +88,31 @@ class BatchSpec(StrictModel):
 
     @model_validator(mode='after')
     def check_policy(self):
+        if not (self.targets or self.bots):
+            raise ValueError('Добавьте цели размещения')
+        if self.bots and (self.kind != 'bots' or self.targets):
+            raise ValueError('Поле bots используется только для старого формата пачки ботов')
         if self.policy and not self.policy.min_cpm <= self.cpm <= self.policy.max_cpm:
             raise ValueError('Начальная CPM должна входить в диапазон автоподбора')
         return self
+
+
+class DiscoverSpec(StrictModel):
+    kind: Literal['bots', 'channels', 'search']
+    query: str = Field(default='', max_length=10000)
+    mode: Literal['similar', 'search', 'manual', 'research'] = 'similar'
+    refresh: bool = False
+
+
+class CSVText(StrictModel):
+    csv: str = Field(min_length=1, max_length=120000)
+
+
+class ResearchImport(CSVText):
+    kind: Literal['bots', 'channels', 'search']
+    relation: Literal['destination', 'placement', 'keyword']
+    source: str = Field(default='TGMaps CSV', min_length=1, max_length=100)
+    columns: dict[str, str] = Field(max_length=8)
 
 
 class ConfirmBatch(StrictModel):
@@ -120,12 +149,13 @@ def cost_per_click(ad):
     return spent / clicks
 
 
-def create_app(settings=None, api=None):
+def create_app(settings=None, api=None, directory=None):
     settings = settings or Settings.from_env()
     settings.validate()
     db = DB(settings.data_dir / 'papin-ads.sqlite3')
     ads_api = api or AdsAPI(settings.ads_token)
     engine = Engine(settings, db, ads_api)
+    discovery = Discovery(settings, db, directory)
     attempts = {}
     static = Path(__file__).parent / 'static'
     # Deliver the first-party UI in the document: filters or stale asset caches
@@ -148,9 +178,10 @@ def create_app(settings=None, api=None):
             with suppress(asyncio.CancelledError):
                 await task
         await ads_api.close()
+        await discovery.directory.close()
 
     app = FastAPI(title='Papin Ads', docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
-    app.state.engine, app.state.db = engine, db
+    app.state.engine, app.state.db, app.state.discovery = engine, db, discovery
 
     def session(request):
         try:
@@ -303,10 +334,28 @@ def create_app(settings=None, api=None):
     @app.post('/api/templates/from-ad/{ad_id}')
     async def template_from_ad(ad_id: int):
         ad = db.ad(ad_id)
-        if not ad or not ad.get('text'):
-            raise ValueError('У объявления нет текста для шаблона')
-        return {'id': engine.save_template({'name': ad['title'], 'text': ad['text'], 'promote_url': ad['promote_url'],
+        if not ad or not ad.get('promote_url') or (not ad.get('text') and ad.get('placement') != 'search_result'):
+            raise ValueError('У объявления нет данных для шаблона')
+        return {'id': engine.save_template({'name': ad['title'], 'text': ad.get('text', ''), 'promote_url': ad['promote_url'],
+                                           'placements': ['search'] if ad.get('placement') == 'search_result' else ['bots', 'channels', 'search'],
                                            'impression_frequency': ad.get('impression_frequency', 1), 'source_ad_id': ad_id})}
+
+    @app.get('/api/discovery/status')
+    async def discovery_status():
+        return discovery.status()
+
+    @app.post('/api/discovery')
+    async def discover(body: DiscoverSpec):
+        return await discovery.find(body.kind, body.query, body.mode, body.refresh)
+
+    @app.post('/api/research/columns')
+    async def research_columns(body: CSVText):
+        headers, rows = csv_rows(body.csv)
+        return {'columns': headers, 'rows': len(rows), 'sample': rows[:2]}
+
+    @app.post('/api/research/import')
+    async def import_research(body: ResearchImport):
+        return discovery.import_csv(body.model_dump())
 
     @app.post('/api/batches/preview')
     async def preview_batch(body: BatchSpec):
@@ -323,9 +372,30 @@ def create_app(settings=None, api=None):
             items = db.query('SELECT id,username,status,ad_id,error,attempts FROM batch_items WHERE batch_id=? ORDER BY created,rowid', (row['id'],))
             value = json.loads(row['spec'])
             result.append({'id': row['id'], 'name': row['name'], 'status': row['status'], 'created': row['created'],
+                           'kind': value['spec'].get('kind', 'bots'), 'project': value['spec'].get('project', ''),
                            'total': value['total'], 'cpm': value['spec']['cpm'], 'budget': value['spec']['budget'],
                            'items': items, 'done': sum(i['status'] == 'done' for i in items), 'count': len(items)})
-        return {'batches': result}
+        projects = {}
+        ads = {ad['ad_id']: ad for ad in db.ads()}
+        specs = {}
+        for membership in db.query('SELECT b.id,b.spec,i.ad_id FROM batches b JOIN batch_items i ON i.batch_id=b.id WHERE i.ad_id IS NOT NULL'):
+            spec = specs.setdefault(membership['id'], json.loads(membership['spec'])['spec'])
+            name = spec.get('project') or 'Без проекта'
+            for kind in (spec.get('kind', 'bots'), 'all'):
+                bucket = projects.setdefault((name, kind), {'project': name, 'kind': kind, 'ad_ids': set()})
+                if membership['ad_id'] in ads:
+                    bucket['ad_ids'].add(membership['ad_id'])
+        summary = []
+        for bucket in projects.values():
+            selected = [ads[ad_id] for ad_id in bucket.pop('ad_ids')]
+            def aggregate(field):
+                values = [ad.get(field) for ad in selected]
+                return sum(values) if all(value is not None for value in values) else None
+            row = dict(bucket, count=len(selected), views=aggregate('views'), clicks=aggregate('clicks'), spent=aggregate('spent_budget'))
+            row['ctr'] = row['clicks']/row['views']*100 if row['views'] and row['clicks'] is not None else None
+            row['cpc'] = row['spent']/row['clicks'] if row['clicks'] and row['spent'] is not None else None
+            summary.append(row)
+        return {'batches': result, 'projects': summary}
 
     @app.post('/api/batches/{batch_id}/cancel')
     async def cancel_batch(batch_id: str):

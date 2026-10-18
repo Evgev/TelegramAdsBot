@@ -50,7 +50,7 @@ class FakeAPI:
         if method == 'getCurrentAccount':
             return dict(title='Test account', currency='TON', remaining_budget=20, spent_budget=1, ads_budget=2)
         if method == 'getTargetBot':
-            return dict(bot_id=123, username=params['bot_id'].lstrip('@'), title='Example bot')
+            return dict(bot_id=sum((i+1)*ord(c) for i,c in enumerate(params['bot_id'].lower())), username=params['bot_id'].lstrip('@'), title='Example bot')
         if method == 'getAdsById':
             return [copy.deepcopy(a) for a in self.ads if a['ad_id'] in params['ad_ids']]
         if method == 'getAdStats':

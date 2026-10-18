@@ -13,7 +13,7 @@ class AdsError(Exception):
 
 class AdsAPI:
     base_url = 'https://promoteapi.telegram.org'
-    allowed = {'getCurrentAccount', 'getAdsList', 'getAdsById', 'getTargetBot', 'getAdStats', 'createAd', 'editAd'}
+    allowed = {'getCurrentAccount', 'getAdsList', 'getAdsById', 'getTargetBot', 'getTargetChannel', 'getAdStats', 'createAd', 'editAd'}
 
     def __init__(self, token):
         self.token = token

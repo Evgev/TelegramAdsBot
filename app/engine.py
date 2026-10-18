@@ -14,6 +14,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .ads_api import AdsError
 from .controller import decide, money
+from .targets import PLACEMENTS, ad_targets, key, parse_targets, payload_target, resolve, source_tag, validate_template
 
 
 def parse_bots(text, limit=50):
@@ -117,12 +118,30 @@ class Engine:
         return template_id
 
     async def preview(self, spec):
-        bots = parse_bots(spec['bots'], self.settings.max_batch_size)
+        kind = spec.get('kind', 'bots')
+        names = parse_targets(kind, spec.get('targets') or spec.get('bots', ''), self.settings.max_batch_size)
         rows = self.db.query('SELECT body FROM templates WHERE id=?', (spec['template_id'],))
         if not rows:
             raise ValueError('Шаблон не найден')
         template = json.loads(rows[0]['body'])
-        total = money(Decimal(str(spec['budget'])) * len(bots))
+        validate_template(template, kind, spec.get('tracking', 'keep'))
+        targets, rejected, seen = [], [], set()
+        for name in names:
+            try:
+                target = await resolve(self.api, kind, name)
+                identity = target.get('bot_id', target.get('channel_id', target['key']))
+                if identity not in seen:
+                    seen.add(identity)
+                    targets.append(target)
+            except AdsError as exc:
+                if exc.retryable:
+                    raise
+                rejected.append({'username': name, 'error': exc.code})
+            except ValueError as exc:
+                rejected.append({'username': name, 'error': str(exc)})
+        if not targets:
+            raise ValueError('Нет разрешённых целей: ' + '; '.join(t['username'] + ': ' + t['error'] for t in rejected))
+        total = money(Decimal(str(spec['budget'])) * len(targets))
         if total > self.settings.max_batch_budget:
             raise ValueError(f'Лимит одной пачки — {self.settings.max_batch_budget:g} TON')
         account = await self.api.call('getCurrentAccount')
@@ -130,19 +149,19 @@ class Engine:
             raise ValueError('Этот прототип настроен для TON-кабинета')
         if total > account['remaining_budget']:
             raise ValueError('Недостаточно свободного баланса: нужно ' + str(total) + ' TON')
-        targets = []
-        for username in bots:
-            target = await self.api.call('getTargetBot', {'bot_id': '@' + username})
-            targets.append({k: target[k] for k in ['username', 'bot_id', 'title']})
         if spec.get('tracking') == 'unique':
             make_link(template['promote_url'], 'check')
         value = {'spec': spec, 'template': template, 'targets': targets, 'total': total, 'exp': int(time.time()) + 900,
                  'batch_id': uuid.uuid4().hex}
-        existing = {b.get('username', '').lower() for ad in self.db.ads() for b in ad.get('target', {}).get('bots', [])}
+        existing = {key(k, v) for ad in self.db.ads() for k, v in ad_targets(ad)}
         warnings = []
-        overlap = [t['username'] for t in targets if t['username'].lower() in existing]
+        overlap = [t['username'] for t in targets if key(kind, t['username']) in existing]
         if overlap:
-            warnings.append('Уже есть объявления с таргетом: ' + ', '.join('@' + x for x in overlap))
+            warnings.append('Уже есть объявления с таргетом: ' + ', '.join(('' if kind == 'search' else '@') + x for x in overlap))
+        if kind == 'search':
+            warnings.append('Поиск: одно объявление на фразу; текст шаблона не передаётся, ссылка без start. Платформа окончательно проверяет фразу и доступность формата при создании.')
+        if rejected:
+            warnings.append('Недоступные площадки исключены. Проверьте список перед подтверждением.')
         if spec.get('tracking') == 'unique':
             warnings.append('Метки будут сохранены здесь. Регистрация новых меток в Minishop выполняется отдельно.')
         if spec.get('policy'):
@@ -152,7 +171,7 @@ class Engine:
                 warnings.append(f'Для цели по показам бюджет допускает средний CPM до {max_affordable:g} TON; при более высокой ставке бюджет может закончиться раньше цели.')
         return {'token': sign(value, self.settings.session_secret), 'batch_id': value['batch_id'], 'targets': targets,
                 'total': total, 'currency': account['currency'], 'available': account['remaining_budget'],
-                'template': template, 'spec': spec, 'warnings': warnings}
+                'template': template, 'spec': spec, 'warnings': warnings, 'rejected': rejected}
 
     def create_batch(self, token):
         value = unsign(token, self.settings.session_secret)
@@ -165,11 +184,12 @@ class Engine:
                          (batch_id, spec['name'], 'queued', json.dumps(value, ensure_ascii=False), now))
             for target in targets:
                 item_id = uuid.uuid4().hex
-                source = 'pa_' + batch_id[:8] + '_' + target['username'][:32]
-                title = (spec['name'] + ' · ' + target['username'] + ' · ' + batch_id[:6]).encode()[:128].decode(errors='ignore')
-                payload = {'title': title, 'text': template['text'],
+                kind = spec.get('kind', 'bots')
+                source = source_tag(batch_id, target['username'])
+                title = ('PA ' + batch_id[:8] + '-' + item_id[:12] + ' · ' + spec['name'] + ' · ' + target['username']).encode()[:128].decode(errors='ignore')
+                payload = {'title': title, 'text': '' if kind == 'search' else template['text'],
                            'promote_url': make_link(template['promote_url'], source) if spec.get('tracking') == 'unique' else template['promote_url'],
-                           'cpm': spec['cpm'], 'placement': 'bot_banner', 'target': {'type': 'bots', 'bot_ids': [target['bot_id']]},
+                           'cpm': spec['cpm'], 'placement': PLACEMENTS[kind], 'target': payload_target(kind, target),
                            'impression_frequency': template.get('impression_frequency', 1), 'initial_budget': spec['budget'], 'return_target': True}
                 conn.execute('INSERT INTO batch_items(id,batch_id,username,status,payload,created) VALUES (?,?,?,?,?,?)',
                              (item_id, batch_id, target['username'], 'queued', json.dumps(payload, ensure_ascii=False), now))
@@ -198,7 +218,7 @@ class Engine:
                     ad = await self.api.call('createAd', payload, idempotency='papin-' + item['id'])
                 self.db.save_ad(ad)
                 self.db.execute("UPDATE batch_items SET status='done',ad_id=?,error=NULL WHERE id=?", (ad['ad_id'], item['id']))
-                self.db.event('created', 'Создано объявление для @' + item['username'], ad['ad_id'], {'batch_id': item['batch_id']})
+                self.db.event('created', 'Создано объявление для ' + item['username'], ad['ad_id'], {'batch_id': item['batch_id']})
                 batch = self.db.query('SELECT spec FROM batches WHERE id=?', (item['batch_id'],))[0]
                 policy = json.loads(batch['spec'])['spec'].get('policy')
                 if policy:
@@ -211,7 +231,7 @@ class Engine:
                 retry = exc.retryable and attempts < 5
                 self.db.execute('UPDATE batch_items SET status=?,error=?,next_attempt=? WHERE id=?',
                                 ('queued' if retry else 'attention', exc.code, int(time.time()) + min(900, 30 * 2 ** attempts), item['id']))
-                self.db.event('error', 'Создание @' + item['username'] + ': ' + exc.code, details={'batch_id': item['batch_id']})
+                self.db.event('error', 'Создание ' + item['username'] + ': ' + exc.code, details={'batch_id': item['batch_id']})
             self.refresh_batch(item['batch_id'])
 
     def refresh_batch(self, batch_id):
